@@ -1,2 +1,2 @@
 # JuliaNN
-Deep Learning framework implemented in Julia 
+Neural network library implemented in Julia 
