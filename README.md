@@ -1,5 +1,5 @@
 ## JuliaNN
-#Neural network library implemented in Julia 
+# Neural network library implemented in Julia 
 
 File `graph.jl` contains operational graph definition (for autograd) and base operations.
 
