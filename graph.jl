@@ -137,10 +137,6 @@ import Base: ^
 forward(::ScalarOperator{typeof(^)}, x, n) = return x^n
 backward(::ScalarOperator{typeof(^)}, x, n, g) = tuple(g * n * x ^ (n-1), g * log(abs(x)) * x ^ n)
 
-import Base: exp
-
-exp(x::GraphNode) = ScalarOperator(exp, x)
-
 import Base: *
 import LinearAlgebra: mul!
 
@@ -154,17 +150,17 @@ Base.Broadcast.broadcasted(*, x::GraphNode, y::GraphNode) = VectorOperator(*, x,
 forward(::VectorOperator{typeof(*)}, x, y) = return x .* y
 backward(node::VectorOperator{typeof(*)}, x, y, g) = let
     I = ones(length(node.outputs))
-    Jx = diagm(y .* I)
-    Jy = diagm(x .* I)
+    Jx = diagm(vec(y .* I))
+    Jy = diagm(vec(x .* I))
     tuple(Jx' * g, Jy' * g)
 end
 
 # x ./ y element-wise multiplication
 Base.Broadcast.broadcasted(/, x::GraphNode, y::GraphNode) = VectorOperator(/, x, y)
 forward(::VectorOperator{typeof(/)}, x, y) = return x ./ y
-backward(node::VectorOperator{typeof(/)}, x, y::Real, g) = let
+backward(node::VectorOperator{typeof(/)}, x, y, g) = let
     I = ones(length(node.outputs))
-    Jx = diagm(I ./ y)
+    Jx = diagm(vec(I ./ y))
     Jy = (-x ./ y .^2)
     tuple(Jx' * g, Jy' * g)
 end
@@ -176,6 +172,12 @@ backward(::VectorOperator{typeof(-)}, x, y, g) = tuple(g, -g)
 Base.Broadcast.broadcasted(+, x::GraphNode, y::GraphNode) = VectorOperator(+, x, y)
 forward(::VectorOperator{typeof(+)}, x, y) = return x .+ y
 backward(::VectorOperator{typeof(+)}, x, y, g) = tuple(g, g)
+
+Base.Broadcast.broadcasted(exp, x::GraphNode) = VectorOperator(exp, x)
+forward(::VectorOperator{typeof(exp)}, x) = return exp.(x)
+backward(::VectorOperator{typeof(exp)}, x, g) = let
+    return tuple(g .* exp.(x))
+end
 
 import Base: sum
 sum(x::GraphNode) = VectorOperator(sum, x)
@@ -195,3 +197,11 @@ backward(::VectorOperator{typeof(max)}, x, y, g) = let
     tuple(Jx' * g, Jy' * g)
 end
 
+import Base: one, zero
+Base.Broadcast.broadcasted(one, x::GraphNode) = VectorOperator(one, x)
+forward(::VectorOperator{typeof(one)}, x) = return one.(x)
+backward(::VectorOperator{typeof(one)}, x, g) = return tuple(g .* one.(x))
+
+Base.Broadcast.broadcasted(zero, x::GraphNode) = VectorOperator(zero, x)
+forward(::VectorOperator{typeof(zero)}, x) = return zero.(x)
+backward(::VectorOperator{typeof(zero)}, x, g) = return tuple(g .* zero.(x))
