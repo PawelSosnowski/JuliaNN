@@ -28,7 +28,19 @@ function step_lr(current_lr, epoch; gamma=0.9, step_size=1)
         return current_lr
 end    
 
+# TODO: change this if necessary
 function SGD_step!(weights, gradient, lr)
     weights[:] = weights .- lr * gradient
 end
 
+function NLLLoss(y, y_true)
+    output, grad = 0, zeros(Float32, size(y_true))
+    for i in 1:size(y)[1]
+        if y_true[i] == 1.0
+            output = -y[i]
+            grad[i] = -1.0
+            break
+        end
+    end
+    return output, grad
+end

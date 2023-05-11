@@ -1,4 +1,5 @@
 using Base
+include("backend.jl")
 
 abstract type NNGraphNode end
 
@@ -65,7 +66,8 @@ mutable struct Convolution2D <: NNLayer
 end
 
 function forward(x::Array{Float32}, layer::Convolution2D)
-    return x
+    layer.input = x
+    return conv2d_layer_op(layer.input, layer.weights)
 end
 
 function backward(x::Array{Float32}, layer::Convolution2D)
@@ -97,7 +99,8 @@ mutable struct Linear <: NNLayer
 end
 
 function forward(x::Array{Float32}, layer::Linear)
-    return x
+    layer.input = x
+    return layer.weights * layer.input + layer.bias
 end
 
 function backward(x::Array{Float32}, layer::Linear)
@@ -113,7 +116,8 @@ mutable struct RELU <: NNOperator
 end
 
 function forward(x::Array{Float32}, operator::RELU)
-    return x
+    operator.input = x
+    return max.(0, operator.input)
 end
 
 function backward(x::Array{Float32}, operator::RELU)
@@ -127,13 +131,15 @@ mutable struct MaxPool2D <: NNOperator
     input::Array{Float32, 3}
     input_grad::Array{Float32, 3}
 
-    chosen_indices::Array{Float32, 3}
+    max_indices::Array{Float32, 3}
 
     MaxPool2D(kernel_, inshape_) = new(kernel_, inshape_, Array{Float32, 3}(undef, inshape_...), zeros(inshape_...), zeros(inshape_...))
 end
 
 function forward(x::Array{Float32}, operator::MaxPool2D)
-    return x
+    operator.input = x
+    transformed_x, operator.max_indices = maxpool2d_op(operator.input, operator.kernel_size)
+    return transformed_x
 end
 
 function backward(x::Array{Float32}, operator::MaxPool2D)
@@ -149,7 +155,8 @@ mutable struct Flatten <: NNOperator
 end
 
 function forward(x::Array{Float32}, operator::Flatten)
-    return x
+    operator.input = x
+    return reshape(operator.input, prod(size(operator.input)), 1)
 end
 
 function backward(x::Array{Float32}, operator::Flatten)
@@ -165,7 +172,9 @@ mutable struct LogSoftmax <: NNOperator
 end
 
 function forward(x::Array{Float32}, operator::LogSoftmax)
-    return x
+    operator.input = x
+    c = maximum(operator.input)
+    return operator.input .- (c + log(sum(exp.(operator.input .- c))))
 end
 
 function backward(x::Array{Float32}, operator::LogSoftmax)
@@ -176,6 +185,3 @@ function uniform_init_weights(neurons, weights_shape)
     stdv = 1. / sqrt(neurons)
     return 2 .* stdv .* rand(weights_shape...) .- stdv
 end
-
-
-# loss
