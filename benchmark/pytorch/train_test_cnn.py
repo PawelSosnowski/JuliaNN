@@ -11,8 +11,8 @@ from torchvision import datasets, transforms
 class CNNet(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1)
+        self.conv1 = nn.Conv2d(1, 32, 3, 1, bias=False)
+        self.conv2 = nn.Conv2d(32, 64, 3, 1, bias=False)
         self.fc1 = nn.Linear(1600, 10)
 
     def forward(self, x):
@@ -37,7 +37,7 @@ def init_weights(module: nn.Module):
         n = module.in_channels
         stdv = 1. / math.sqrt(n)
         module.weight.data.uniform_(-stdv, stdv)
-        module.bias.data.uniform_(-stdv, stdv)
+        # module.bias.data.uniform_(-stdv, stdv)
 
 def train(model: nn.Module, train_loader: torch.utils.data.DataLoader, optimizer: optim.Optimizer, scheduler: LRScheduler, epoch: int, device: torch.device):
     model.train()
@@ -49,6 +49,8 @@ def train(model: nn.Module, train_loader: torch.utils.data.DataLoader, optimizer
         loss = F.nll_loss(output, target, reduction='mean')
 
         loss.backward()
+        # print('conv1 grad, weights:', model.conv1.weight.grad, model.conv1.weight.grad.shape, 'bias:', model.conv1.bias.grad, model.conv1.bias.grad.shape)
+        # exit()
         if batch_index % 10 == 0:
             print(f'Train Epoch: {epoch} ({100. * batch_index / len(train_loader):.0f}%) Loss: {loss.item():.6f}')
         
@@ -80,10 +82,10 @@ def load_and_transform_mnist()-> Tuple[torch.utils.data.DataLoader, torch.utils.
         transforms.Normalize((0.1307,), (0.3081,))
         ])
     
-    train_dataset = datasets.MNIST('../data', train=True, download=False, transform=transform)
-    test_dataset = datasets.MNIST('../data', train=False, transform=transform)
+    train_dataset = datasets.MNIST('benchmark/data', train=True, download=False, transform=transform)
+    test_dataset = datasets.MNIST('benchmark/data', train=False, transform=transform)
     
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=128)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=100)
     return train_loader, test_loader
 
@@ -96,7 +98,7 @@ if __name__ == '__main__':
     train_data, test_data = load_and_transform_mnist()
     model = CNNet().to(device)
     model.apply(init_weights)
-    optimizer = optim.SGD(model.parameters(), lr=0.1)
+    optimizer = optim.SGD(model.parameters(), lr=0.001)
     lr_scheduler = StepLR(optimizer, step_size=1, gamma=0.7)
 
     for epoch in range(1, 11):
