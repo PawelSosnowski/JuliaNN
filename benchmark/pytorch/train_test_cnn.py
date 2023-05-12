@@ -37,7 +37,6 @@ def init_weights(module: nn.Module):
         n = module.in_channels
         stdv = 1. / math.sqrt(n)
         module.weight.data.uniform_(-stdv, stdv)
-        # module.bias.data.uniform_(-stdv, stdv)
 
 def train(model: nn.Module, train_loader: torch.utils.data.DataLoader, optimizer: optim.Optimizer, scheduler: LRScheduler, epoch: int, device: torch.device):
     model.train()
@@ -49,8 +48,7 @@ def train(model: nn.Module, train_loader: torch.utils.data.DataLoader, optimizer
         loss = F.nll_loss(output, target, reduction='mean')
 
         loss.backward()
-        # print('conv1 grad, weights:', model.conv1.weight.grad, model.conv1.weight.grad.shape, 'bias:', model.conv1.bias.grad, model.conv1.bias.grad.shape)
-        # exit()
+
         if batch_index % 10 == 0:
             print(f'Train Epoch: {epoch} ({100. * batch_index / len(train_loader):.0f}%) Loss: {loss.item():.6f}')
         
@@ -93,6 +91,7 @@ def load_and_transform_mnist()-> Tuple[torch.utils.data.DataLoader, torch.utils.
 torch.manual_seed(0)
 
 if __name__ == '__main__':
+    torch.set_num_threads(1)
     device = torch.device('cpu')
 
     train_data, test_data = load_and_transform_mnist()
@@ -104,3 +103,15 @@ if __name__ == '__main__':
     for epoch in range(1, 11):
         train(model, train_data, optimizer, lr_scheduler, epoch, device)
         evaluate(model, test_data, device)
+
+# memory test:
+# tracemalloc.start()
+# tracemalloc.get_traced_memory()
+# tracemalloc.stop() -> 94.11 MB
+
+
+# time test:
+# params = epochs = 1, num_threads = 1, batch = 1
+# start = time.time() 
+# train()
+# time.time() - start -> 117.5s

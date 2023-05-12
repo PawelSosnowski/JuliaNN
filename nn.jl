@@ -25,6 +25,7 @@ Base.show(io::IO, layer::NNGraphNode) = print(io, typeof(layer),[(layer_param, g
 struct NNGraph
     name::String
     nodes::Vector{NNGraphNode}
+    # Feature to add: inference_mode::Bool that indicates whether to store data for backprop in graph.
 end
 
 Base.iterate(graph::NNGraph) = Base.iterate(graph.nodes)
