@@ -4,11 +4,26 @@ include("backend.jl")
 abstract type NNGraphNode end
 
 abstract type NNLayer <: NNGraphNode end
+
+function zero_grad(layer::NNLayer)
+    layer.input_grad .*= 0.0f0
+    layer.weights_grad .*= 0.0f0
+
+    if :bias_grad in fieldnames(typeof(layer))
+        layer.bias_grad .*= 0.0f0
+    end
+end
+
 abstract type NNOperator <: NNGraphNode end
+
+function zero_grad(layer::NNOperator)
+    layer.input_grad .*= 0.0f0
+end
 
 Base.show(io::IO, layer::NNGraphNode) = print(io, typeof(layer),[(layer_param, getfield(layer, layer_param)) for layer_param in fieldnames(typeof(layer)) if !(typeof(getfield(layer, layer_param)) <: AbstractArray)]...)
 
 struct NNGraph
+    name::String
     nodes::Vector{NNGraphNode}
 end
 
@@ -17,9 +32,10 @@ Base.iterate(graph::NNGraph, state::Int64) = Base.iterate(graph.nodes, state)
 Base.getindex(graph::NNGraph, index::Int64) = Base.getindex(graph.nodes, index)
 Base.getindex(graph::NNGraph, r::UnitRange{Int64}) = Base.getindex(graph.nodes, r) 
 Base.lastindex(graph::NNGraph) = Base.lastindex(graph.nodes)
+Base.reverse(graph::NNGraph) = Base.reverse(graph.nodes)
 
 function showNNGraph(io::IO, graph::NNGraph)
-    print(io, "Computational graph:\n(\n")
+    print(io, graph.name, ":\n(\n")
     print(io, graph[1])
 
     for node in graph[2:end]
@@ -39,8 +55,25 @@ function forward(data::Array{Float32, 3}, graph::NNGraph)
     return data
 end
 
-function backward(graph::NNGraph)
+function backward(gradient::Vector{Float32}, graph::NNGraph)
+    for node in reverse(graph)
+        backward(gradient, node)
+        gradient = node.input_grad
+    end
+end
 
+function zero_grad(graph::NNGraph)
+    for node in graph
+        zero_grad(node)
+    end
+end
+
+function update_weights(graph::NNGraph, optimizer::Function, lr::Float32)
+    for node in graph
+        if typeof(node) <: NNLayer
+            update_weights(node, optimizer, lr)
+        end
+    end
 end
 
 mutable struct Convolution2D <: NNLayer
@@ -70,8 +103,12 @@ function forward(x::Array{Float32}, layer::Convolution2D)
     return conv2d_layer_op(layer.input, layer.weights)
 end
 
-function backward(x::Array{Float32}, layer::Convolution2D)
+function backward(gradient::Array{Float32}, layer::Convolution2D)
+    layer.input_grad, layer.weights_grad = conv2d_layer_grad_op(layer.input, layer.weights, gradient)
+end
 
+function update_weights(layer::Convolution2D, optimizer::Function, lr::Float32)
+    layer.weights = optimizer(layer.weights, layer.weights_grad, lr)
 end
 
 mutable struct Linear <: NNLayer
@@ -103,8 +140,15 @@ function forward(x::Array{Float32}, layer::Linear)
     return layer.weights * layer.input + layer.bias
 end
 
-function backward(x::Array{Float32}, layer::Linear)
+function backward(gradient::Array{Float32}, layer::Linear)
+    layer.weights_grad = gradient * layer.input'
+    layer.bias_grad = reshape(gradient, size(gradient)[1])
+    layer.input_grad = layer.weights' * gradient
+end
 
+function update_weights(layer::Linear, optimizer::Function, lr::Float32)
+    layer.weights = optimizer(layer.weights, layer.weights_grad, lr)
+    layer.bias = optimizer(layer.bias, layer.bias_grad, lr)
 end
 
 mutable struct RELU <: NNOperator
@@ -120,8 +164,9 @@ function forward(x::Array{Float32}, operator::RELU)
     return max.(0, operator.input)
 end
 
-function backward(x::Array{Float32}, operator::RELU)
-
+function backward(gradient::Array{Float32}, operator::RELU)
+    operator.input_grad = gradient
+    operator.input_grad[operator.input .<= 0.0f0] .= 0.0f0
 end
 
 mutable struct MaxPool2D <: NNOperator
@@ -142,8 +187,8 @@ function forward(x::Array{Float32}, operator::MaxPool2D)
     return transformed_x
 end
 
-function backward(x::Array{Float32}, operator::MaxPool2D)
-
+function backward(gradient::Array{Float32}, operator::MaxPool2D)
+    operator.input_grad = maxpool2d_grad_op(operator.max_indices, operator.kernel_size, gradient)
 end
 
 mutable struct Flatten <: NNOperator
@@ -159,8 +204,8 @@ function forward(x::Array{Float32}, operator::Flatten)
     return reshape(operator.input, prod(size(operator.input)), 1)
 end
 
-function backward(x::Array{Float32}, operator::Flatten)
-
+function backward(gradient::Array{Float32}, operator::Flatten)
+    operator.input_grad = reshape(gradient, operator.input_shape)
 end
 
 mutable struct LogSoftmax <: NNOperator
@@ -177,8 +222,8 @@ function forward(x::Array{Float32}, operator::LogSoftmax)
     return operator.input .- (c + log(sum(exp.(operator.input .- c))))
 end
 
-function backward(x::Array{Float32}, operator::LogSoftmax)
-
+function backward(gradient::Array{Float32}, operator::LogSoftmax)
+    operator.input_grad = exp.(operator.input) / sum(exp.(operator.input)) .+ gradient
 end
 
 function uniform_init_weights(neurons, weights_shape)
