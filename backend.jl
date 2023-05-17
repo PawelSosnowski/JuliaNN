@@ -1,7 +1,11 @@
-function conv2d_op!(output::Union{SubArray{Float32, 2}, Array{Float32, 2}}, input::Union{SubArray{Float32, 2}, Array{Float32, 2}}, filter::Union{SubArray{Float32, 2}, Array{Float32, 2}}, f_dim::Int64, out_dim::Int64)
+function conv2d_op!(output::Union{SubArray{Float32, 2}, Array{Float32, 2}}, 
+                    input::Union{SubArray{Float32, 2}, Array{Float32, 2}}, 
+                    filter::Union{SubArray{Float32, 2}, Array{Float32, 2}}, 
+                    f_dim::Int64, out_dim::Int64
+                    )
     for i in 1:out_dim
         for j in 1:out_dim
-            output[i, j] += sum(input[i:i+f_dim-1, j:j+f_dim-1] .* filter)
+           output[i, j] += sum(@view(input[i:i+f_dim-1, j:j+f_dim-1]) .* filter)
         end
     end
 end
@@ -37,7 +41,7 @@ function conv2d_layer_grad_op(input::Array{Float32, 3}, filters::Array{Float32, 
         padded_grad[f_dim: end - f_dim + 1, f_dim: end - f_dim + 1] = grad[:, :, n]
 
         for c in in_channels
-            conv2d_op!(@view(input_grad[:, :, c]), padded_grad, reverse(filters[:, :, c, n]), f_dim, i_dim) # reverse(filters) (conv) padded(grad)
+            conv2d_op!(@view(input_grad[:, :, c]), padded_grad, reverse(@views(filters[:, :, c, n])), f_dim, i_dim) # reverse(filters) (conv) padded(grad)
             conv2d_op!(@view(weights_grad[:, :, c, n]), @view(input[:, :, c]), @view(grad[:, :, n]), grad_dim, f_dim) # input (conv) grad
         end
     end

@@ -1,10 +1,12 @@
 using Random
+using BenchmarkTools
 
 include("nn.jl")
 include("utils.jl")
 
 
 function train(train_x::Array{Float32, 3}, train_y::Matrix{Float32}, model::NNGraph, learning_rate::Float32)
+    avg_loss = 0.0f0
     for i in range(1, size(train_y)[2])
         x, y = train_x[:, :, i], train_y[:, i]
 
@@ -13,8 +15,10 @@ function train(train_x::Array{Float32, 3}, train_y::Matrix{Float32}, model::NNGr
         y_hat = reshape(y_hat, size(y_hat)[1])
         loss, loss_grad = NLLLoss(y_hat, y)
 
-        if i % (size(train_y)[2] / 1000) == 0
-            println("[", i / size(train_y)[2] * 100 ,"%]", "Loss: ", loss)
+        avg_loss += loss
+        if i % 100 == 0
+            println("[", round((i / size(train_y)[2]) * 100, digits=1),"%]", "Loss: ", round(avg_loss / 100, digits=4))
+            avg_loss = 0.0f0
         end
         
         backward(loss_grad, model)
@@ -25,19 +29,24 @@ end
 
 function evaluate(test_x::Array{Float32, 3}, test_y::Matrix{Float32}, model::NNGraph) 
     loss = 0.0f0
+    accuracy = 0.0f0
     for i in range(1, size(test_y)[2])
         x, y = test_x[:, :, i], test_y[:, i]
 
         y_hat = forward(reshape(x, (size(x)..., 1)), model)
+        y_hat = reshape(y_hat, size(y_hat)[1])
+
         loss += NLLLoss(y_hat, y)[1]
+        accuracy += Float32(argmax(y_hat) == argmax(y))
     end
     println("Average test loss: ", loss / size(test_y)[2])
+    println("Accuracy: ", accuracy / size(test_y)[2])
 end
 
 function main()
-    Random.seed!(1) # for reproducility
+    Random.seed!(10) # for reproducility
     learning_rate = 0.001f0
-    epochs = 1
+    epochs = 5
 
     model_dims = [
         (28, 28, 1), 
@@ -66,6 +75,11 @@ function main()
     println(model)
 
     train_x, train_y, test_x, test_y = MNIST_dataloader()
+    
+    # trial = @benchmark train($train_x, $train_y, $model, $learning_rate)
+    # println("Mean time: ", mean(trial.times) / 10^9)
+    # println("Memory megabytes: ", trial.memory / 10^6, " Allocs: ", trial.allocs)
+    # exit()
 
     for epoch in range(1, epochs)
         train(train_x, train_y, model, learning_rate)
@@ -82,10 +96,17 @@ end
 
 
 # time test:
-# using @benchmark train($train_x, $train_y, $model, $lr) - mean: 46.08 min
+# using @benchmark train($train_x, $train_y, $model, $lr) - mean: 20.7 min
+
+# start: 0.337 per 10 train steps
+# @inbounds 0.329 per 10 train steps
+# @simd @inbounds 0.337 per 10 train steps
+# more @views 0.207 per 10 train steps
+# @propagate_inbounds 0.237 per 10 train steps
 
 # memory test:
 # using @benchamrk 
 # - Model: 2.56MB, allocs: 133
 # - Model with train/test data in memory: 499.92MB, allocs: 346
-# - Model with train/test data in memory and 1 train loop: 554.005MB, allocs: 555278
+# - Model with train/test data in memory and 10 train loop: 554.005MB, allocs: 555278
+# - optimized @views: 279.34MB

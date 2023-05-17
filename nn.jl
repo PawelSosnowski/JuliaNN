@@ -12,12 +12,14 @@ function zero_grad(layer::NNLayer)
     if :bias_grad in fieldnames(typeof(layer))
         layer.bias_grad .*= 0.0f0
     end
+    layer.input .*= 0.0f0
 end
 
 abstract type NNOperator <: NNGraphNode end
 
-function zero_grad(layer::NNOperator)
-    layer.input_grad .*= 0.0f0
+function zero_grad(operator::NNOperator)
+    operator.input_grad .*= 0.0f0
+    operator.input .*= 0.0f0
 end
 
 Base.show(io::IO, layer::NNGraphNode) = print(io, typeof(layer),[(layer_param, getfield(layer, layer_param)) for layer_param in fieldnames(typeof(layer)) if !(typeof(getfield(layer, layer_param)) <: AbstractArray)]...)
@@ -224,7 +226,8 @@ function forward(x::Array{Float32}, operator::LogSoftmax)
 end
 
 function backward(gradient::Array{Float32}, operator::LogSoftmax)
-    operator.input_grad = exp.(operator.input) / sum(exp.(operator.input)) .+ gradient
+    c = maximum(operator.input)
+    operator.input_grad = exp.(operator.input .- (c + log(sum(exp.(operator.input .- c))))) .+ gradient
 end
 
 function uniform_init_weights(neurons, weights_shape)
