@@ -103,15 +103,3 @@ if __name__ == '__main__':
     for epoch in range(1, 11):
         train(model, train_data, optimizer, lr_scheduler, epoch, device)
         evaluate(model, test_data, device)
-
-# memory test:
-# tracemalloc.start()
-# tracemalloc.get_traced_memory()
-# tracemalloc.stop() -> 94.11 MB
-
-
-# time test:
-# params = epochs = 1, num_threads = 1, batch = 1
-# start = time.time() 
-# train()
-# time.time() - start -> 117.5s
