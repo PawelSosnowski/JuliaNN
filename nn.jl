@@ -3,23 +3,28 @@ include("backend.jl")
 
 abstract type NNGraphNode end
 
+#TODO: add output to avoid many allocs
 abstract type NNLayer <: NNGraphNode end
 
 function zero_grad(layer::NNLayer)
-    layer.input_grad .*= 0.0f0
-    layer.weights_grad .*= 0.0f0
+    fill!(layer.input_grad, 0.0f0)
+    fill!(layer.weights_grad, 0.0f0)
 
     if :bias_grad in fieldnames(typeof(layer))
-        layer.bias_grad .*= 0.0f0
+        fill!(layer.bias_grad, 0.0f0)
     end
-    layer.input .*= 0.0f0
+    fill!(layer.input, 0.0f0)
 end
 
 abstract type NNOperator <: NNGraphNode end
 
 function zero_grad(operator::NNOperator)
-    operator.input_grad .*= 0.0f0
-    operator.input .*= 0.0f0
+    fill!(operator.input_grad, 0.0f0)
+    fill!(operator.input, 0.0f0)
+
+    if :max_indices in fieldnames(typeof(operator))
+        fill!(operator.max_indices, 0.0f0)
+    end
 end
 
 Base.show(io::IO, layer::NNGraphNode) = print(io, typeof(layer),[(layer_param, getfield(layer, layer_param)) for layer_param in fieldnames(typeof(layer)) if !(typeof(getfield(layer, layer_param)) <: AbstractArray)]...)
@@ -27,7 +32,6 @@ Base.show(io::IO, layer::NNGraphNode) = print(io, typeof(layer),[(layer_param, g
 struct NNGraph
     name::String
     nodes::Vector{NNGraphNode}
-    # Feature to add: inference_mode::Bool that indicates whether to store data for backprop in graph.
 end
 
 Base.iterate(graph::NNGraph) = Base.iterate(graph.nodes)
@@ -79,6 +83,7 @@ function update_weights(graph::NNGraph, optimizer::Function, lr::Float32)
     end
 end
 
+#TODO: mutable to static struct by changing fields update from = to .=
 mutable struct Convolution2D <: NNLayer
     input_size::Int32
     kernel_size::Int32
@@ -107,13 +112,14 @@ function forward(x::Array{Float32}, layer::Convolution2D)
 end
 
 function backward(gradient::Array{Float32}, layer::Convolution2D)
-    layer.input_grad, layer.weights_grad = conv2d_layer_grad_op(layer.input, layer.weights, gradient)
+    conv2d_layer_grad_op(layer.input, layer.weights, gradient, layer.input_grad, layer.weights_grad)
 end
 
 function update_weights(layer::Convolution2D, optimizer::Function, lr::Float32)
     layer.weights = optimizer(layer.weights, layer.weights_grad, lr)
 end
 
+#TODO: mutable to static struct by changing fields update from = to .=
 mutable struct Linear <: NNLayer
     input_neurons::Int32
     output_neurons::Int32
@@ -135,7 +141,6 @@ mutable struct Linear <: NNLayer
                                      zeros(insh_...), 
                                      zeros(outn_, inn_),
                                      zeros(outn_))
-
 end
 
 function forward(x::Array{Float32}, layer::Linear)
@@ -144,9 +149,9 @@ function forward(x::Array{Float32}, layer::Linear)
 end
 
 function backward(gradient::Array{Float32}, layer::Linear)
-    layer.weights_grad = gradient * layer.input'
-    layer.bias_grad = reshape(gradient, size(gradient)[1])
-    layer.input_grad = layer.weights' * gradient
+    layer.weights_grad += gradient * layer.input'
+    layer.bias_grad += reshape(gradient, size(gradient)[1])
+    layer.input_grad += layer.weights' * gradient
 end
 
 function update_weights(layer::Linear, optimizer::Function, lr::Float32)
@@ -168,10 +173,11 @@ function forward(x::Array{Float32}, operator::RELU)
 end
 
 function backward(gradient::Array{Float32}, operator::RELU)
-    operator.input_grad = gradient
-    operator.input_grad[operator.input .<= 0.0f0] .= 0.0f0
+    operator.input_grad += gradient
+    operator.input_grad[operator.input .<= 0.0f0] .*= 0.0f0
 end
 
+#TODO: mutable to static struct by changing fields update from = to .=
 mutable struct MaxPool2D <: NNOperator
     kernel_size::Int32
 
@@ -186,14 +192,15 @@ end
 
 function forward(x::Array{Float32}, operator::MaxPool2D)
     operator.input = x
-    transformed_x, operator.max_indices = maxpool2d_op(operator.input, operator.kernel_size)
+    transformed_x = maxpool2d_op(operator.input, operator.kernel_size, operator.max_indices)
     return transformed_x
 end
 
 function backward(gradient::Array{Float32}, operator::MaxPool2D)
-    operator.input_grad = maxpool2d_grad_op(operator.max_indices, operator.kernel_size, gradient)
+    maxpool2d_grad_op(operator.max_indices, operator.kernel_size, gradient, operator.input_grad)
 end
 
+#TODO: mutable to static struct by changing fields update from = to .=
 mutable struct Flatten <: NNOperator
     input_shape::Tuple{Int32, Int32, Int32}
     input::Array{Float32, 3}
@@ -208,9 +215,10 @@ function forward(x::Array{Float32}, operator::Flatten)
 end
 
 function backward(gradient::Array{Float32}, operator::Flatten)
-    operator.input_grad = reshape(gradient, operator.input_shape)
+    operator.input_grad += reshape(gradient, operator.input_shape)
 end
 
+#TODO: mutable to static struct by changing fields update from = to .=
 mutable struct LogSoftmax <: NNOperator
     input_shape::Tuple{Int32, Int32}
     input::Array{Float32, 2}
@@ -227,7 +235,7 @@ end
 
 function backward(gradient::Array{Float32}, operator::LogSoftmax)
     c = maximum(operator.input)
-    operator.input_grad = exp.(operator.input .- (c + log(sum(exp.(operator.input .- c))))) .+ gradient
+    operator.input_grad += exp.(operator.input .- (c + log(sum(exp.(operator.input .- c))))) .+ gradient
 end
 
 function uniform_init_weights(neurons, weights_shape)
