@@ -4,8 +4,14 @@ function normalize_input!(input::Array{Float32, 3}, mean::Float32, std::Float32)
     input[:] = (input .- mean) ./ std
 end
 
-function one_hot_target(labels::Vector)
-    return Float32.(unique(labels) .== permutedims(labels))
+function one_hot_target(labels::Vector, classes::Int64 = 10)
+    output = zeros(Float32, classes, length(labels))
+
+    for i in range(1,length(labels))
+        output[labels[i]+1, i] = 1.0f0
+    end
+
+    return output
 end
 
 function MNIST_dataloader(path::String = "./benchmark/data/MNIST/raw", mean::Float32 = 0.1307f0, std::Float32 = 0.3081f0)
@@ -14,7 +20,6 @@ function MNIST_dataloader(path::String = "./benchmark/data/MNIST/raw", mean::Flo
 
     normalize_input!(train_x, mean, std)
     normalize_input!(test_x, mean, std)
-
     train_y = one_hot_target(train_y)
     test_y = one_hot_target(test_y)
     
@@ -29,7 +34,7 @@ function step_lr(current_lr::Float32, epoch::Int64; gamma::Float32=0.9f0, step_s
 end    
 
 function SGD(weights::Array{Float32}, gradient::Array{Float32}, lr::Float32)
-    return weights - gradient .* lr
+    return weights .- gradient .* lr
 end
 
 function NLLLoss(y::Vector{Float32}, y_true::Vector{Float32})
